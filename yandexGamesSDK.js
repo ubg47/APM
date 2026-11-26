@@ -387,7 +387,7 @@ const yandexGamesSDK = (function () {
 	function m_resolveLanguage() {
 		console.log("yandexGamesSDK.m_resolveLanguage: called");
 		try {
-			return m_sdk.environment.i18n.lang;
+			return m_sdk?.environment?.i18n?.lang || "en";
 		}
 		catch (exception) {
 			console.error("yandexGamesSDK.m_resolveLanguage: error", exception);
