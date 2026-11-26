@@ -46,11 +46,19 @@
 </div>
 <!-- ########## SERVICE WORKER ########## -->
 <script type="text/javascript">
-        window.addEventListener("load", function () {
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.register("ServiceWorker.js");
-            }
-        });
+window.addEventListener("load", async function () {
+    try {
+        if (typeof yandexGamesSDK !== "undefined") {
+            await yandexGamesSDK.init();
+            console.log("Yandex SDK initialized");
+        }
+    } catch (error) {
+        console.warn("Yandex SDK unavailable:", error);
+    }
+
+    // Always initialize the game
+    game.init();
+});
     </script>
 <!-- ########## MEMORY DIAGNOSTICS ########## -->
 <link rel="stylesheet" href="TemplateData/diagnostics.css"/>
