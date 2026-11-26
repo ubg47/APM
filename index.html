@@ -70,18 +70,37 @@
     </script>
 <!-- ########## YANDEX GAMES SDK ########## -->
 <script src="yandexGamesSDK.js"></script>
+
 <script>
 window.addEventListener("load", async function () {
+    console.log("[APM] Starting game...");
+
     try {
-        if (typeof YaGames !== "undefined") {
-            await yandexGamesSDK.init();
-        }
-    } catch (e) {
-        console.warn("Yandex SDK unavailable:", e);
+        console.log("[APM] Initialising Yandex SDK...");
+
+        // Initialise the SDK even if YaGames isn't loaded yet.
+        const sdkPromise = yandexGamesSDK.init();
+
+        // Give SDK initialisation time, but don't let it block Unity forever.
+        await Promise.race([
+            sdkPromise,
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("SDK timeout")), 10000)
+            )
+        ]);
+
+        console.log("[APM] SDK initialisation finished.");
+
+    } catch (error) {
+        console.warn("[APM] SDK unavailable:", error);
     }
 
+    console.log("[APM] Starting Unity...");
     game.init();
 });
 </script>
+</body>
+</html>
+
 </body>
 </html>
