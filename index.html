@@ -39,26 +39,17 @@
 <div id="unity-progress-bar-empty">
 <div id="unity-progress-bar-full"></div>
 </div>
-
 </div>
 </div>
 <div id="unity-warning"> </div>
 </div>
 <!-- ########## SERVICE WORKER ########## -->
 <script type="text/javascript">
-window.addEventListener("load", async function () {
-    try {
-        if (typeof yandexGamesSDK !== "undefined") {
-            await yandexGamesSDK.init();
-            console.log("Yandex SDK initialized");
-        }
-    } catch (error) {
-        console.warn("Yandex SDK unavailable:", error);
-    }
-
-    // Always initialize the game
-    game.init();
-});
+        window.addEventListener("load", function () {
+            if ("serviceWorker" in navigator) {
+                navigator.serviceWorker.register("ServiceWorker.js");
+            }
+        });
     </script>
 <!-- ########## MEMORY DIAGNOSTICS ########## -->
 <link rel="stylesheet" href="TemplateData/diagnostics.css"/>
@@ -80,12 +71,18 @@ window.addEventListener("load", async function () {
 <!-- ########## YANDEX GAMES SDK ########## -->
 <script type="text/javascript" src="yandexGamesSDK.js"></script>
 <script type="text/javascript">
-        window.addEventListener("load", function () {
-            yandexGamesSDK.init().then(() => {
-				// After Yandex Games SDK is ready.
-				game.init();
-            });
-        });
-    </script>
+window.addEventListener("load", async function () {
+    try {
+        if (typeof yandexGamesSDK !== "undefined") {
+            await yandexGamesSDK.init();
+            console.log("Yandex SDK initialized");
+        }
+    } catch (error) {
+        console.warn("Yandex SDK unavailable:", error);
+    }
+
+    game.init();
+});
+</script>
 </body>
 </html>
