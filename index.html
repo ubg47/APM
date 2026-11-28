@@ -126,11 +126,11 @@
 
             } else {
 
-                console.log(
-                    "[APM] Standalone mode: skipping Yandex initialization."
-                );
+console.log("[APM] Enabling standalone SDK...");
 
-            }
+await yandexGamesSDK.init();
+
+console.log("[APM] Standalone SDK ready.");
 
             // Always start Unity.
             console.log("[APM] Starting Unity...");
