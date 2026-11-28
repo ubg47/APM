@@ -1,482 +1,723 @@
+
 const yandexGamesSDK = (function () {
 
-	let m_sdk;
-	let m_payments;
+    let m_sdk = null;
+    let m_payments = null;
+    let m_player = null;
 
-	let m_bannerVisible = false;
-	let m_interstitialVisible = false;
-	let m_rewardedVisible = false;
+    let m_initialized = false;
+    let m_standalone = false;
+    let m_initializing = null;
 
-	let m_cacheProductsData = "";
-	let m_cachePurchasesData = "";
+    let m_bannerVisible = false;
+    let m_interstitialVisible = false;
+    let m_rewardedVisible = false;
 
-	let m_jsonContainers = [
-		"json-data",
-		"write-experiment",
-		"cryptography",
-	];
+    let m_cacheProductsData = "[]";
+    let m_cachePurchasesData = "[]";
 
-	let m_cacheContainers = { };
+    const m_jsonContainers = [
+        "json-data",
+        "write-experiment",
+        "cryptography"
+    ];
 
-	function m_trySendMessage(eventSource, eventType) {
-		let gameInstance = game.getInstance();
-		if (gameInstance != null) {
-			gameInstance.SendMessage("JSCallbacks", eventSource, eventType);
-		}
-	}
+    let m_cacheContainers = {};
 
-	function m_init() {
-		console.log("yandexGamesSDK.m_init: called");
-		return new Promise((resolve, reject) => {
-			try {
-				let script = document.createElement("script");
-				script.src = "https://yandex.ru/games/sdk/v2";
-				script.onload = () => {
-					YaGames.init().then(ysdk => {
-						console.log("yandexGamesSDK.m_init: sdk is ready");
-						m_sdk = ysdk;
-						// Cache payments.
-						m_resolvePayments().then(() => {
-							// Cache player and saves.
-							m_resolveSaves().then(() => {
-								resolve(ysdk);
-							});
-						});
-					});
-				};
-				document.body.appendChild(script);
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_init: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    const STORAGE_KEY = "APM_MIRRA_SAVES";
 
-	function m_refreshBannerStatus() {
-		console.log("yandexGamesSDK.m_refreshBannerStatus: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.adv.getBannerAdvStatus().then(({ stickyAdvIsShowing }) => {
-					m_bannerVisible = stickyAdvIsShowing;
-					resolve(stickyAdvIsShowing);
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_refreshBannerStatus: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    // ----------------------------------
+    // UNITY CALLBACKS
+    // ----------------------------------
 
-	function m_invokeBanner() {
-		console.log("yandexGamesSDK.m_invokeBanner: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.adv.getBannerAdvStatus().then(({ stickyAdvIsShowing, reason }) => {
-					m_bannerVisible = stickyAdvIsShowing;
-					if (stickyAdvIsShowing) {
-						console.log("yandexGamesSDK.m_invokeBanner: already visible");
-						reject(stickyAdvIsShowing);
-					} else if (reason) {
-						// Currently not visible, there is a reason for that.
-						console.log("yandexGamesSDK.m_invokeBanner: " + reason);
-						reject(reason);
-					} else {
-						console.log("yandexGamesSDK.m_invokeBanner: invoke banner");
-						m_sdk.adv.showBannerAdv().then(() => {
-							resolve(m_refreshBannerStatus());
-						});
-					}
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_invokeBanner: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    function m_trySendMessage(objectName, methodName, value) {
+        try {
+            if (
+                typeof game !== "undefined" &&
+                game &&
+                typeof game.getInstance === "function"
+            ) {
+                const instance = game.getInstance();
 
-	function m_disableBanner() {
-		console.log("yandexGamesSDK.m_disableBanner: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.adv.getBannerAdvStatus().then(({ stickyAdvIsShowing, reason }) => {
-					m_bannerVisible = stickyAdvIsShowing;
-					if (stickyAdvIsShowing) {
-						console.log("yandexGamesSDK.disableBanner: disable banner");
-						m_sdk.adv.hideBannerAdv().then(() => {
-							resolve(m_refreshBannerStatus());
-						});
-					} else if (reason) {
-						// Currently not visible, there is a reason for that.
-						console.log("yandexGamesSDK.disableBanner: " + reason);
-						reject(reason);
-					} else {
-						console.log("yandexGamesSDK.disableBanner: not visible");
-						reject(stickyAdvIsShowing);
-					}
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_disableBanner: error", exception);
-				reject(exception);
-			}
-		});
-	}
+                if (instance && typeof instance.SendMessage === "function") {
+                    instance.SendMessage(
+                        objectName,
+                        methodName,
+                        value
+                    );
+                }
+            }
+        } catch (error) {
+            console.warn("[APM SDK] Unity callback unavailable:", error);
+        }
+    }
 
-	function m_invokeInterstitial() {
-		console.log("yandexGamesSDK.m_invokeInterstitial: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.adv.showFullscreenAdv({
-					callbacks: {
-						// Called when the ad is opened successfully.
-						onOpen: function () {
-							console.log("yandexGamesSDK.m_invokeInterstitial: onOpen");
-							m_interstitialVisible = true;
-							m_trySendMessage("OnInterstitialEvent", "Begin");
-						},
-						// Called when the ad closes, after an error, or after an ad failed to open due to too frequent calls. 
-						// It's used with the wasShown argument (boolean type), the value of which indicates whether the ad was shown or not.
-						onClose: function (wasShown) {
-							console.log("yandexGamesSDK.m_invokeInterstitial: onClose");
-							m_interstitialVisible = false;
-							m_trySendMessage("OnInterstitialEvent", "Close");
-						},
-						// Called when an error occurs. The error object is passed to the callback function.
-						onError: function (error) {
-							console.log("yandexGamesSDK.m_invokeInterstitial: onError");
-							m_trySendMessage("OnInterstitialEvent", "Error");
-						},
-						// Called when the network connection is lost (switching to offline mode).
-						onOffline: function () {
-							console.log("yandexGamesSDK.m_invokeInterstitial: onOffline");
-							m_trySendMessage("OnInterstitialEvent", "Offline");
-						}
-					}
-				});
-				resolve();
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_invokeInterstitial: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    function m_callback(eventSource, eventType) {
+        m_trySendMessage("JSCallbacks", eventSource, eventType);
+    }
 
-	function m_invokeRewarded() {
-		console.log("yandexGamesSDK.m_invokeRewarded: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.adv.showRewardedVideo({
-					callbacks: {
-						// Called when the video ad is shown on the screen.
-						onOpen: () => {
-							console.log("yandexGamesSDK.m_invokeRewarded: onOpen");
-							m_rewardedVisible = true;
-							m_trySendMessage("OnRewardedEvent", "Begin");
-						},
-						// Called when a video ad impression is counted.
-						onRewarded: () => {
-							console.log("yandexGamesSDK.m_invokeRewarded: onRewarded");
-							m_trySendMessage("OnRewardedEvent", "Success");
-						},
-						// Called when the video ad closes.
-						onClose: () => {
-							console.log("yandexGamesSDK.m_invokeRewarded: onClose");
-							m_rewardedVisible = false;
-							m_trySendMessage("OnRewardedEvent", "Close");
-						},
-						// Called when an error occurs. The error object is passed to the callback function.
-						onError: (error) => {
-							console.log("yandexGamesSDK.m_invokeRewarded: onError", error);
-							m_trySendMessage("OnRewardedEvent", "Error");
-						}
-					}
-				});
-				resolve();
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_invokeRewarded: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    // ----------------------------------
+    // LOCAL SAVE STORAGE
+    // ----------------------------------
 
-	function m_resolvePayments() {
-		console.log("yandexGamesSDK.m_resolvePayments: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.getPayments().then(payments => {
-					console.log("yandexGamesSDK.m_resolvePayments: payments are ready");
-					m_payments = payments;
-					// Cache products before game loading.
-					m_cacheServerProducts().then(() => {
-						// Cache purchases before game loading.
-						m_cacheServerPurchases().then(() => {
-							// Payments are preloaded and ready.
-							resolve(payments);
-						});
-					});
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_resolvePayments: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    function m_loadLocalSaves() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
 
-	function m_cacheServerProducts() {
-		console.log("yandexGamesSDK.m_cacheServerProducts: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_payments.getCatalog().then(products => {
-					let callbackProductData = [];
-					for (let x = 0; x < products.length; x++) {
-						callbackProductData.push({
-							"productTag": products[x].id,
-							"priceValue": products[x].priceValue
-						});
-					}
-					m_cacheProductsData = JSON.stringify(callbackProductData);
-					m_trySendMessage("OnResolveProducts", "Success");
-					resolve(products);
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_cacheServerProducts: error", exception);
-				m_trySendMessage("OnResolveProducts", "Error");
-				reject(exception);
-			}
-		});
-	}
+            if (saved) {
+                m_cacheContainers = JSON.parse(saved);
+            }
+        } catch (error) {
+            console.warn("[APM SDK] Could not load local saves:", error);
+        }
 
-	function m_cacheServerPurchases() {
-		console.log("yandexGamesSDK.m_cacheServerPurchases: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_payments.getPurchases().then(purchases => {
-					let callbackPurchaseData = [];
-					for (let x = 0; x < purchases.length; x++) {
-						callbackPurchaseData.push({
-							"productTag": purchases[x].productID
-						});
-					}
-					m_cachePurchasesData = JSON.stringify(callbackPurchaseData);
-					m_trySendMessage("OnResolvePurchases", "Success");
-					resolve(purchases);
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_cacheServerPurchases: error", exception);
-				m_trySendMessage("OnResolvePurchases", "Error");
-				reject(exception);
-			}
-		});
-	}
+        for (const container of m_jsonContainers) {
+            if (m_cacheContainers[container] == null) {
+                m_cacheContainers[container] = "Empty";
+            }
+        }
 
-	function m_invokePurchase(productTag) {
-		console.log("yandexGamesSDK.m_invokePurchase: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_payments.purchase(productTag).then(() => {
-					console.log("yandexGamesSDK.m_invokePurchase: purchase success");
-					m_trySendMessage("OnPurchaseEvent", "Success");
-					resolve(productTag);
-				}).catch(exception => {
-					console.error("yandexGamesSDK.m_invokePurchase: error", exception);
-					m_trySendMessage("OnPurchaseEvent", "Error");
-					reject(exception);
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_invokePurchase: error", exception);
-				m_trySendMessage("OnPurchaseEvent", "Error");
-				reject(exception);
-			}
-		});
-	}
+        return m_cacheContainers;
+    }
 
-	function m_resolvePlayer() {
-		console.log("yandexGamesSDK.m_resolvePlayer: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_sdk.getPlayer({ scopes: false }).then(player => {
-					console.log("yandexGamesSDK.m_resolvePlayer: player is ready");
-					resolve(player);
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_resolvePlayer: error", exception);
-				reject(exception);
-			}
-		});
-	}
+    function m_saveLocalSaves() {
+        try {
+            localStorage.setItem(
+                STORAGE_KEY,
+                JSON.stringify(m_cacheContainers)
+            );
 
-	function m_resolveSaves() {
-		console.log("yandexGamesSDK.m_resolveSaves: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_resolvePlayer().then(player => {
-					player.getData(m_jsonContainers).then(data => {
-						for (let x = 0; x < m_jsonContainers.length; x++) {
-							let containerString = "";
-							if (data[m_jsonContainers[x]] != null) {
-								console.log("yandexGamesSDK.m_resolveSaves: " + m_jsonContainers[x] + " success");
-								containerString = data[m_jsonContainers[x]];
-							}
-							else {
-								console.log("yandexGamesSDK.m_resolveSaves: " + m_jsonContainers[x] + " is empty");
-								containerString = "Empty";
-							}
-							m_cacheContainers[m_jsonContainers[x]] = containerString;
-						}
-						m_trySendMessage("OnResolveSaves", "Success");
-						resolve(data);
-					});
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_resolveSaves: error", exception);
-				m_trySendMessage("OnResolveSaves", "Error");
-				reject(exception);
-			}
-		});
-	}
+            return true;
+        } catch (error) {
+            console.error("[APM SDK] Could not save data:", error);
+            return false;
+        }
+    }
 
-	function m_writeSaves() {
-		console.log("yandexGamesSDK.m_writeSaves: called");
-		return new Promise((resolve, reject) => {
-			try {
-				m_resolvePlayer().then(player => {
-					let data = {};
-					let cryptography = new Uint32Array(8);
-					window.crypto.getRandomValues(cryptography);
-					for (let x = 0; x < m_jsonContainers.length; x++) {
-						data[m_jsonContainers[x]] = m_cacheContainers[m_jsonContainers[x]];
-					}
-					data["cryptography"] = cryptography;
-					player.setData(data, true).then(() => {
-						console.log("yandexGamesSDK.m_writeSaves: success");
-						m_trySendMessage("OnWriteSaves", "Success");
-						resolve();
-					});
-				});
-			}
-			catch (exception) {
-				console.error("yandexGamesSDK.m_writeSaves: error", exception);
-				m_trySendMessage("OnWriteSaves", "Error");
-				reject(exception);
-			}
-		});
-	}
+    // ----------------------------------
+    // SDK INITIALIZATION
+    // ----------------------------------
 
-	function m_writeCacheSavesJSON(containerTag, json) {
-		console.log("yandexGamesSDK.m_writeCacheSavesJSON: called");
-		try {
-			m_cacheContainers[containerTag] = json;
-			console.log("yandexGamesSDK.m_writeCacheSavesJSON: success");
-		}
-		catch (exception) {
-			console.error("yandexGamesSDK.m_writeCacheSavesJSON: error", exception);
-		}
-	}
+    function m_init() {
 
-	function m_resolveLanguage() {
-		console.log("yandexGamesSDK.m_resolveLanguage: called");
-		try {
-			return m_sdk?.environment?.i18n?.lang || "en";
-		}
-		catch (exception) {
-			console.error("yandexGamesSDK.m_resolveLanguage: error", exception);
-			return "en";
-		}
-	}
+        if (m_initialized) {
+            return Promise.resolve(m_sdk);
+        }
 
-	return {
+        if (m_initializing) {
+            return m_initializing;
+        }
 
-		getSDK: function () {
-			return m_sdk;
-		},
+        m_initializing = (async function () {
 
-		init: function () {
-			return m_init();
-		},
+            console.log("[APM SDK] Initializing...");
 
-		isBannerVisible: function () {
-			return m_bannerVisible;
-		},
+            const isYandexEnvironment =
+                window.parent !== window &&
+                typeof window.YandexGamesSDKEnvironment !== "undefined";
 
-		invokeBanner: function () {
-			return m_invokeBanner();
-		},
+            if (!isYandexEnvironment) {
 
-		disableBanner: function () {
-			return m_disableBanner();
-		},
+                console.log("[APM SDK] Standalone mode enabled.");
 
-		isInterstitialVisible: function () {
-			return m_interstitialVisible;
-		},
+                m_standalone = true;
+                m_initialized = true;
 
-		invokeInterstitial: function () {
-			return m_invokeInterstitial();
-		},
+                m_loadLocalSaves();
 
-		isRewardedVisible: function () {
-			return m_rewardedVisible;
-		},
+                m_cacheProductsData = "[]";
+                m_cachePurchasesData = "[]";
 
-		invokeRewarded: function () {
-			return m_invokeRewarded();
-		},
+                return null;
+            }
 
-		invokePurchase: function (productTag) {
-			return m_invokePurchase(productTag);
-		},
+            try {
 
-		resolveServerProducts: function () {
-			return m_cacheServerProducts();
-		},
+                if (!window.YaGames) {
 
-		resolveServerPurchases: function () {
-			return m_cacheServerPurchases();
-		},
+                    await new Promise((resolve, reject) => {
 
-		resolveCacheProducts: function () {
-			return m_cacheProductsData;
-		},
+                        const script = document.createElement("script");
 
-		resolveCachePurchases: function () {
-			return m_cachePurchasesData;
-		},
+                        script.src = "https://yandex.ru/games/sdk/v2";
 
-		resolveSaves: function () {
-			return m_resolveSaves();
-		},
+                        script.onload = resolve;
 
-		writeSaves: function () {
-			return m_writeSaves();
-		},
+                        script.onerror = () => reject(
+                            new Error("Could not load Yandex SDK")
+                        );
 
-		resolveCacheSavesJSON: function (containerTag) {
-			let containerJSON = m_cacheContainers[containerTag];
-			if(containerJSON == null) {
-				return "Empty";
-			}
-			return containerJSON;
-		},
+                        document.head.appendChild(script);
+                    });
+                }
 
-		writeCacheSavesJSON: function (containerTag, json) {
-			return m_writeCacheSavesJSON(containerTag, json);
-		},
+                m_sdk = await YaGames.init();
 
-		resolveLanguage: function () {
-			return m_resolveLanguage();
-		},
+                console.log("[APM SDK] Yandex initialized.");
 
-	}
+                m_initialized = true;
+
+                // Payments are optional.
+                try {
+                    m_payments = await m_sdk.getPayments();
+
+                    await m_cacheServerProducts();
+                    await m_cacheServerPurchases();
+
+                } catch (error) {
+                    console.warn(
+                        "[APM SDK] Payments unavailable:",
+                        error
+                    );
+
+                    m_payments = null;
+                    m_cacheProductsData = "[]";
+                    m_cachePurchasesData = "[]";
+                }
+
+                // Player and cloud saves are optional.
+                try {
+                    m_player = await m_sdk.getPlayer({
+                        scopes: false
+                    });
+
+                    await m_resolveSaves();
+
+                } catch (error) {
+                    console.warn(
+                        "[APM SDK] Player unavailable:",
+                        error
+                    );
+
+                    m_loadLocalSaves();
+                }
+
+                return m_sdk;
+
+            } catch (error) {
+
+                console.warn(
+                    "[APM SDK] Yandex unavailable. Using standalone mode:",
+                    error
+                );
+
+                m_sdk = null;
+                m_payments = null;
+                m_player = null;
+
+                m_standalone = true;
+                m_initialized = true;
+
+                m_loadLocalSaves();
+
+                return null;
+            }
+
+        })();
+
+        return m_initializing;
+    }
+
+    // ----------------------------------
+    // LANGUAGE
+    // ----------------------------------
+
+    function m_resolveLanguage() {
+
+        if (
+            m_sdk &&
+            m_sdk.environment &&
+            m_sdk.environment.i18n
+        ) {
+            return m_sdk.environment.i18n.lang || "en";
+        }
+
+        const language =
+            navigator.language ||
+            navigator.userLanguage ||
+            "en";
+
+        return language.split("-")[0].toLowerCase();
+    }
+
+    // ----------------------------------
+    // BANNERS
+    // ----------------------------------
+
+    async function m_refreshBannerStatus() {
+
+        if (!m_sdk || m_standalone) {
+            m_bannerVisible = false;
+            return false;
+        }
+
+        try {
+            const result = await m_sdk.adv.getBannerAdvStatus();
+
+            m_bannerVisible = result.stickyAdvIsShowing;
+
+            return m_bannerVisible;
+
+        } catch (error) {
+            console.warn("[APM SDK] Banner status failed:", error);
+            return false;
+        }
+    }
+
+    async function m_invokeBanner() {
+
+        if (!m_sdk || m_standalone) {
+            return false;
+        }
+
+        try {
+            await m_sdk.adv.showBannerAdv();
+            return await m_refreshBannerStatus();
+
+        } catch (error) {
+            console.warn("[APM SDK] Banner unavailable:", error);
+            return false;
+        }
+    }
+
+    async function m_disableBanner() {
+
+        if (!m_sdk || m_standalone) {
+            m_bannerVisible = false;
+            return false;
+        }
+
+        try {
+            await m_sdk.adv.hideBannerAdv();
+            m_bannerVisible = false;
+            return true;
+
+        } catch (error) {
+            console.warn("[APM SDK] Banner hide failed:", error);
+            return false;
+        }
+    }
+
+    // ----------------------------------
+    // INTERSTITIAL ADS
+    // ----------------------------------
+
+    function m_invokeInterstitial() {
+
+        if (!m_sdk || m_standalone) {
+            console.log("[APM SDK] Interstitial skipped.");
+            m_interstitialVisible = false;
+            m_callback("OnInterstitialEvent", "Error");
+            m_callback("OnInterstitialEvent", "Close");
+            return Promise.resolve(false);
+        }
+
+        return new Promise(resolve => {
+
+            try {
+
+                m_sdk.adv.showFullscreenAdv({
+
+                    callbacks: {
+
+                        onOpen: function () {
+                            m_interstitialVisible = true;
+                            m_callback("OnInterstitialEvent", "Begin");
+                        },
+
+                        onClose: function () {
+                            m_interstitialVisible = false;
+                            m_callback("OnInterstitialEvent", "Close");
+                            resolve(true);
+                        },
+
+                        onError: function (error) {
+                            console.warn("[APM SDK] Interstitial error:", error);
+
+                            m_interstitialVisible = false;
+
+                            m_callback("OnInterstitialEvent", "Error");
+                            resolve(false);
+                        },
+
+                        onOffline: function () {
+                            m_interstitialVisible = false;
+                            m_callback("OnInterstitialEvent", "Offline");
+                            resolve(false);
+                        }
+                    }
+                });
+
+            } catch (error) {
+
+                console.warn("[APM SDK] Interstitial failed:", error);
+
+                m_interstitialVisible = false;
+                m_callback("OnInterstitialEvent", "Error");
+
+                resolve(false);
+            }
+        });
+    }
+
+    // ----------------------------------
+    // REWARDED ADS
+    // ----------------------------------
+
+    function m_invokeRewarded() {
+
+        if (!m_sdk || m_standalone) {
+
+            console.log("[APM SDK] Rewarded ad skipped.");
+
+            m_rewardedVisible = false;
+
+            m_callback("OnRewardedEvent", "Error");
+            m_callback("OnRewardedEvent", "Close");
+
+            return Promise.resolve(false);
+        }
+
+        return new Promise(resolve => {
+
+            let rewarded = false;
+
+            try {
+
+                m_sdk.adv.showRewardedVideo({
+
+                    callbacks: {
+
+                        onOpen: function () {
+                            m_rewardedVisible = true;
+                            m_callback("OnRewardedEvent", "Begin");
+                        },
+
+                        onRewarded: function () {
+                            rewarded = true;
+                            m_callback("OnRewardedEvent", "Success");
+                        },
+
+                        onClose: function () {
+                            m_rewardedVisible = false;
+                            m_callback("OnRewardedEvent", "Close");
+                            resolve(rewarded);
+                        },
+
+                        onError: function (error) {
+                            console.warn("[APM SDK] Rewarded ad error:", error);
+
+                            m_rewardedVisible = false;
+
+                            m_callback("OnRewardedEvent", "Error");
+
+                            resolve(false);
+                        }
+                    }
+                });
+
+            } catch (error) {
+
+                console.warn("[APM SDK] Rewarded ad failed:", error);
+
+                m_rewardedVisible = false;
+                m_callback("OnRewardedEvent", "Error");
+
+                resolve(false);
+            }
+        });
+    }
+
+    // ----------------------------------
+    // PAYMENTS
+    // ----------------------------------
+
+    async function m_cacheServerProducts() {
+
+        if (!m_payments) {
+            m_cacheProductsData = "[]";
+            return [];
+        }
+
+        try {
+
+            const products = await m_payments.getCatalog();
+
+            const result = products.map(product => ({
+                productTag: product.id,
+                priceValue: product.priceValue
+            }));
+
+            m_cacheProductsData = JSON.stringify(result);
+
+            m_callback("OnResolveProducts", "Success");
+
+            return products;
+
+        } catch (error) {
+
+            console.warn("[APM SDK] Products unavailable:", error);
+
+            m_cacheProductsData = "[]";
+
+            m_callback("OnResolveProducts", "Error");
+
+            return [];
+        }
+    }
+
+    async function m_cacheServerPurchases() {
+
+        if (!m_payments) {
+            m_cachePurchasesData = "[]";
+            return [];
+        }
+
+        try {
+
+            const purchases = await m_payments.getPurchases();
+
+            const result = purchases.map(purchase => ({
+                productTag: purchase.productID
+            }));
+
+            m_cachePurchasesData = JSON.stringify(result);
+
+            m_callback("OnResolvePurchases", "Success");
+
+            return purchases;
+
+        } catch (error) {
+
+            console.warn("[APM SDK] Purchases unavailable:", error);
+
+            m_cachePurchasesData = "[]";
+
+            m_callback("OnResolvePurchases", "Error");
+
+            return [];
+        }
+    }
+
+    async function m_invokePurchase(productTag) {
+
+        if (!m_payments || m_standalone) {
+
+            console.warn("[APM SDK] Purchases unavailable.");
+
+            m_callback("OnPurchaseEvent", "Error");
+
+            return false;
+        }
+
+        try {
+
+            await m_payments.purchase(productTag);
+
+            m_callback("OnPurchaseEvent", "Success");
+
+            return true;
+
+        } catch (error) {
+
+            console.warn("[APM SDK] Purchase failed:", error);
+
+            m_callback("OnPurchaseEvent", "Error");
+
+            return false;
+        }
+    }
+
+    // ----------------------------------
+    // PLAYER AND SAVES
+    // ----------------------------------
+
+    async function m_resolveSaves() {
+
+        if (m_standalone || !m_player) {
+
+            m_loadLocalSaves();
+
+            m_callback("OnResolveSaves", "Success");
+
+            return m_cacheContainers;
+        }
+
+        try {
+
+            const data = await m_player.getData(m_jsonContainers);
+
+            for (const container of m_jsonContainers) {
+
+                m_cacheContainers[container] =
+                    data[container] != null
+                        ? data[container]
+                        : "Empty";
+            }
+
+            m_callback("OnResolveSaves", "Success");
+
+            return data;
+
+        } catch (error) {
+
+            console.warn("[APM SDK] Cloud saves unavailable:", error);
+
+            m_loadLocalSaves();
+
+            m_callback("OnResolveSaves", "Success");
+
+            return m_cacheContainers;
+        }
+    }
+
+    async function m_writeSaves() {
+
+        if (m_standalone || !m_player) {
+
+            const success = m_saveLocalSaves();
+
+            m_callback(
+                "OnWriteSaves",
+                success ? "Success" : "Error"
+            );
+
+            return success;
+        }
+
+        try {
+
+            const data = {};
+
+            for (const container of m_jsonContainers) {
+                data[container] = m_cacheContainers[container];
+            }
+
+            const cryptography = new Uint32Array(8);
+
+            if (window.crypto && window.crypto.getRandomValues) {
+                window.crypto.getRandomValues(cryptography);
+            }
+
+            data.cryptography = Array.from(cryptography);
+
+            await m_player.setData(data, true);
+
+            m_callback("OnWriteSaves", "Success");
+
+            return true;
+
+        } catch (error) {
+
+            console.warn("[APM SDK] Cloud save failed:", error);
+
+            m_saveLocalSaves();
+
+            m_callback("OnWriteSaves", "Error");
+
+            return false;
+        }
+    }
+
+    function m_writeCacheSavesJSON(containerTag, json) {
+
+        if (!m_jsonContainers.includes(containerTag)) {
+            console.warn("[APM SDK] Unknown save container:", containerTag);
+            return;
+        }
+
+        m_cacheContainers[containerTag] = json;
+
+        if (m_standalone) {
+            m_saveLocalSaves();
+        }
+    }
+
+    // ----------------------------------
+    // PUBLIC API
+    // ----------------------------------
+
+    return {
+
+        getSDK: function () {
+            return m_sdk;
+        },
+
+        init: function () {
+            return m_init();
+        },
+
+        isBannerVisible: function () {
+            return m_bannerVisible;
+        },
+
+        invokeBanner: function () {
+            return m_invokeBanner();
+        },
+
+        disableBanner: function () {
+            return m_disableBanner();
+        },
+
+        isInterstitialVisible: function () {
+            return m_interstitialVisible;
+        },
+
+        invokeInterstitial: function () {
+            return m_invokeInterstitial();
+        },
+
+        isRewardedVisible: function () {
+            return m_rewardedVisible;
+        },
+
+        invokeRewarded: function () {
+            return m_invokeRewarded();
+        },
+
+        invokePurchase: function (productTag) {
+            return m_invokePurchase(productTag);
+        },
+
+        resolveServerProducts: function () {
+            return m_cacheServerProducts();
+        },
+
+        resolveServerPurchases: function () {
+            return m_cacheServerPurchases();
+        },
+
+        resolveCacheProducts: function () {
+            return m_cacheProductsData;
+        },
+
+        resolveCachePurchases: function () {
+            return m_cachePurchasesData;
+        },
+
+        resolveSaves: function () {
+            return m_resolveSaves();
+        },
+
+        writeSaves: function () {
+            return m_writeSaves();
+        },
+
+        resolveCacheSavesJSON: function (containerTag) {
+
+            const value = m_cacheContainers[containerTag];
+
+            return value == null ? "Empty" : value;
+        },
+
+        writeCacheSavesJSON: function (containerTag, json) {
+            return m_writeCacheSavesJSON(containerTag, json);
+        },
+
+        resolveLanguage: function () {
+            return m_resolveLanguage();
+        }
+
+    };
 
 })();
