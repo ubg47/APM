@@ -1,106 +1,158 @@
-<!DOCTYPE html>
 
+<!DOCTYPE html>
 <html lang="en-us">
 <head>
-<!-- ########## PAGE CONFIGURATION ########## -->
-<meta charset="utf-8"/>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-<meta viewport="" width="device-width," height="device-height," initial-scale="1.0," user-scalable="no," shrink-to-fit="yes"/>
-<title>Anime Pregnant Mother</title>
-<link rel="shortcut icon" href="TemplateData/favicon.ico"/>
-<link rel="stylesheet" href="TemplateData/style.css"/>
-<link rel="manifest" href="manifest.webmanifest"/>
-<!-- ########## DEBUG MODE ########## -->
-<script type="text/javascript">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+    <title>Anime Pregnant Mother</title>
+
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <link rel="stylesheet" href="TemplateData/diagnostics.css">
+
+    <script>
         function fetchDebugMode() {
-            const queryString = window.location.search;
-            const urlParams = new URLSearchParams(queryString);
-            return urlParams.get('mirra-sdk-debug') === 'true';
+            return new URLSearchParams(window.location.search)
+                .get("mirra-sdk-debug") === "true";
         }
-        // Define debug mode for the whole page.
+
         const isDebugModeRequested = fetchDebugMode();
     </script>
-<!-- ########## DEBUG CONSOLE ########## -->
-<script type="text/javascript" src="TemplateData/eruda.js"></script>
-<script type="text/javascript">
-        document.addEventListener('DOMContentLoaded', function () {
-            if (isDebugModeRequested == true) {
+
+    <script src="TemplateData/eruda.js"></script>
+    <script>
+        window.addEventListener("DOMContentLoaded", function () {
+            if (isDebugModeRequested &&
+                typeof eruda !== "undefined") {
                 eruda.init();
             }
         });
     </script>
 </head>
-<body>
-<!-- ########## GAME CANVAS ########## -->
-<div id="unity-container">
-<canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
-<div id="unity-loading-bar">
 
-<div id="unity-progress-bar-empty">
-<div id="unity-progress-bar-full"></div>
-</div>
-</div>
-</div>
-<div id="unity-warning"> </div>
-</div>
-<!-- ########## SERVICE WORKER ########## -->
-<script type="text/javascript">
-        window.addEventListener("load", function () {
-            if ("serviceWorker" in navigator) {
-                navigator.serviceWorker.register("ServiceWorker.js");
-            }
-        });
-    </script>
-<!-- ########## MEMORY DIAGNOSTICS ########## -->
-<link rel="stylesheet" href="TemplateData/diagnostics.css"/>
-<script src="TemplateData/diagnostics.js"></script>
-<script type="text/javascript">
-        let diagnosticsIcon = document.createElement('img');
-        diagnosticsIcon.id = 'diagnostics-icon';
-        diagnosticsIcon.src = 'TemplateData/webmemd-icon.png';
+<body>
+
+    <!-- UNITY GAME -->
+    <div id="unity-container">
+        <canvas id="unity-canvas"
+                width="960"
+                height="600"
+                tabindex="-1">
+        </canvas>
+
+        <div id="unity-loading-bar">
+            <div id="unity-progress-bar-empty">
+                <div id="unity-progress-bar-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="unity-warning"></div>
+
+    <!-- DIAGNOSTICS -->
+    <script src="TemplateData/diagnostics.js"></script>
+
+    <script>
+        const diagnosticsIcon = document.createElement("img");
+        diagnosticsIcon.id = "diagnostics-icon";
+        diagnosticsIcon.src = "TemplateData/webmemd-icon.png";
         diagnosticsIcon.style.display = "none";
         document.body.appendChild(diagnosticsIcon);
     </script>
-<!-- ########## GAME INSTANCE LOADING ########## -->
-<script type="text/javascript" src="TemplateData/game.js"></script>
-<!-- ########## GAME ASPECT RATIO ########## -->
-<script type="text/javascript" src="TemplateData/aspectRatio.js"></script>
-<script type="text/javascript">
-        aspectRatio.init();
+
+    <!-- UNITY LOADER -->
+    <script src="TemplateData/game.js"></script>
+
+    <!-- ASPECT RATIO -->
+    <script src="TemplateData/aspectRatio.js"></script>
+
+    <script>
+        if (typeof aspectRatio !== "undefined") {
+            aspectRatio.init();
+        }
     </script>
-<!-- ########## YANDEX GAMES SDK ########## -->
-<script src="yandexGamesSDK.js"></script>
 
-<script>
-window.addEventListener("load", async function () {
-    console.log("[APM] Starting game...");
+    <!-- YANDEX SDK WRAPPER -->
+    <script src="yandexGamesSDK.js"></script>
 
-    try {
-        console.log("[APM] Initialising Yandex SDK...");
+    <!-- STARTUP -->
+    <script>
+        let unityStarted = false;
 
-        // Initialise the SDK even if YaGames isn't loaded yet.
-        const sdkPromise = yandexGamesSDK.init();
+        async function startAPM() {
 
-        // Give SDK initialisation time, but don't let it block Unity forever.
-        await Promise.race([
-            sdkPromise,
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("SDK timeout")), 10000)
-            )
-        ]);
+            if (unityStarted) return;
+            unityStarted = true;
 
-        console.log("[APM] SDK initialisation finished.");
+            console.log("[APM] Starting game...");
 
-    } catch (error) {
-        console.warn("[APM] SDK unavailable:", error);
-    }
+            // Check whether a Yandex environment exists.
+            const isYandexEnvironment =
+                window.parent !== window &&
+                typeof window.YandexGamesSDKEnvironment !== "undefined";
 
-    console.log("[APM] Starting Unity...");
-    game.init();
-});
-</script>
-</body>
-</html>
+            if (isYandexEnvironment) {
+
+                console.log("[APM] Yandex environment detected.");
+
+                try {
+                    if (
+                        typeof yandexGamesSDK !== "undefined" &&
+                        typeof yandexGamesSDK.init === "function"
+                    ) {
+                        await Promise.race([
+                            yandexGamesSDK.init(),
+
+                            new Promise((_, reject) =>
+                                setTimeout(
+                                    () => reject(
+                                        new Error("Yandex SDK timeout")
+                                    ),
+                                    5000
+                                )
+                            )
+                        ]);
+
+                        console.log("[APM] Yandex SDK ready.");
+                    }
+
+                } catch (error) {
+                    console.warn(
+                        "[APM] Yandex SDK unavailable:",
+                        error
+                    );
+                }
+
+            } else {
+
+                console.log(
+                    "[APM] Standalone mode: skipping Yandex initialization."
+                );
+
+            }
+
+            // Always start Unity.
+            console.log("[APM] Starting Unity...");
+
+            try {
+                if (
+                    typeof game !== "undefined" &&
+                    typeof game.init === "function"
+                ) {
+                    game.init();
+                    console.log("[APM] Unity initialization requested.");
+                } else {
+                    console.error("[APM] Unity loader not found!");
+                }
+
+            } catch (error) {
+                console.error("[APM] Unity startup failed:", error);
+            }
+        }
+
+        window.addEventListener("load", startAPM, { once: true });
+    </script>
 
 </body>
 </html>
